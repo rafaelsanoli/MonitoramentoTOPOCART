@@ -1,0 +1,103 @@
+# ✅ Checklist Técnico — Integração de Monitoramento PostgreSQL + PostGIS com Prometheus, Grafana e Alertmanager
+
+Este checklist contempla os principais pontos de atenção para uma integração completa de monitoramento de múltiplos bancos PostgreSQL (incluindo PostGIS) utilizando Prometheus, exporters, Grafana e Alertmanager. Recomendado para ambientes de alta concorrência, múltiplos clientes e dados geoespaciais.
+
+---
+
+## 1. Arquitetura e Planejamento
+
+- [ ] Mapeamento completo dos bancos PostgreSQL utilizados, incluindo instâncias, clientes e localidades.
+- [ ] Definição clara da infraestrutura de monitoramento: local (mesma máquina), distribuído ou em contêineres.
+- [ ] Inclusão de monitoramento de infraestrutura (CPU, memória, disco, rede) através de `node_exporter`, se necessário.
+- [ ] Planejamento de escalabilidade para múltiplas conexões e bancos futuros.
+- [ ] Avaliação do uso de Prometheus federado ou PushGateway em casos de ambientes distribuídos.
+
+---
+
+## 2. Segurança
+
+- [ ] Armazenamento seguro de senhas e variáveis sensíveis (sem uso de plaintext nos arquivos de configuração).
+- [ ] Utilização de conexões seguras com SSL/TLS entre os serviços (PostgreSQL, exporters, Prometheus).
+- [ ] Restrição de acesso externo aos serviços (Prometheus, Grafana, exporters) por firewall ou autenticação.
+- [ ] Configuração de autenticação no Grafana com perfis de acesso diferenciados por função.
+
+---
+
+## 3. Configuração dos Exporters
+
+- [ ] Deploy de um `postgres_exporter` por instância ou utilização de multi-target no Prometheus.
+- [ ] Inclusão de `queries.yaml` para consultas customizadas, específicas de cada tipo de banco (ex.: PostGIS).
+- [ ] Extensão `pg_stat_statements` habilitada em todos os bancos que exigem monitoramento de performance de queries.
+- [ ] Exporters validados com coleta de métricas esperadas em `/metrics`.
+
+---
+
+## 4. Configuração do Prometheus
+
+- [ ] Inclusão de todos os exporters na configuração (`prometheus.yml`) com identificadores claros (ex.: por cliente, cidade, banco).
+- [ ] Definição de `scrape_interval` adequado à criticidade de cada banco ou serviço.
+- [ ] Criação de regras de alerta (`alert_rules.yml`) com severidade, mensagens descritivas e tempo de tolerância definidos.
+- [ ] Implementação de labels relevantes nas métricas para facilitar filtragem e dashboards.
+- [ ] Validação da coleta e persistência de métricas por meio de queries em PromQL.
+
+---
+
+## 5. Alertmanager e Notificações
+
+- [ ] Integração com canais de alerta (Discord, Telegram, Email) configurada e funcional.
+- [ ] Roteamento de alertas por nível de severidade (ex.: warnings no Discord, críticas no Telegram).
+- [ ] Agrupamento e deduplicação de alertas configurados no Alertmanager.
+- [ ] Mensagens de alerta com contexto claro: banco afetado, métrica, causa provável e ação esperada.
+- [ ] Testes de envio de alerta com simulações de erro realizados com sucesso.
+
+---
+
+## 6. Configuração do Grafana
+
+- [ ] Datasource Prometheus configurado corretamente.
+- [ ] Dashboards personalizados por tipo de banco, cliente ou tipo de métrica.
+- [ ] Dashboards com variáveis (por exemplo, seleção dinâmica de banco ou cliente).
+- [ ] Alertas visuais em painéis críticos configurados.
+- [ ] Acesso de leitura restrito por função de usuário, se aplicável.
+
+---
+
+## 7. Monitoramento para Bancos com PostGIS
+
+- [ ] Consultas espaciais personalizadas (ST_IsValid, ST_NPoints, etc.) implementadas via exporter custom queries.
+- [ ] Verificação de existência de índices espaciais (GIST) nas tabelas geográficas.
+- [ ] Monitoramento do tamanho de geometrias e do número de vértices.
+- [ ] Coleta de dados sobre geometrias inválidas, vazias ou com SRID incorreto.
+- [ ] Tabelas geoespaciais com autovacuum funcionando corretamente.
+- [ ] Métricas específicas de consultas com funções `ST_*` monitoradas por meio do `pg_stat_statements`.
+
+---
+
+## 8. Testes e Validações
+
+- [ ] Simulações de carga realizadas com queries pesadas e múltiplas conexões simultâneas.
+- [ ] Alertas testados por indução controlada de falhas (ex.: travar autovacuum, enfileirar conexões).
+- [ ] Verificação de que alertas foram recebidos nos canais esperados com informações úteis.
+- [ ] Monitoramento de disponibilidade dos serviços (exporters, Prometheus, Grafana) com `blackbox_exporter`, se necessário.
+- [ ] Ambiente de homologação/teste separado para validação contínua de atualizações e configurações.
+
+---
+
+## 9. Governança, Manutenção e Escalabilidade
+
+- [ ] Documentação técnica criada e atualizada, incluindo este checklist.
+- [ ] Processo definido para inclusão de novos bancos/clientes no monitoramento.
+- [ ] Scripts de automação para deploy de exporters e configuração de alertas.
+- [ ] Estratégia de backup e versionamento das configurações do Prometheus, exporters e dashboards.
+- [ ] Plano de escalonamento e resposta a incidentes estabelecido.
+
+---
+
+## 10. Referências que podem ser usadas
+
+- Prometheus: https://prometheus.io/docs/
+- postgres_exporter: https://github.com/prometheus-community/postgres_exporter
+- Grafana: https://grafana.com/docs/
+- Alertmanager: https://prometheus.io/docs/alerting/latest/alertmanager/
+- PostGIS: https://postgis.net/documentation/
+- PromQL: https://promlabs.com/promql-cheat-sheet/

@@ -133,5 +133,5 @@ Ideal: mover credenciais para arquivos .env ou volumes montados externos ao Git.
 
  - Validar alertas reais
 
- Avaliar necessidade de dashboards customizados
+ - Avaliar necessidade de dashboards customizados
   

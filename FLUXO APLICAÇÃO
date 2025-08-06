@@ -1,16 +1,80 @@
-[Bancos PostgreSQL]
-           |
-           v
-[PostgreSQL Exporter (um por banco)]
-           |
-           v
-       [Prometheus]
-           |
-           +------------------+
-           |                  |
-           v                  v
-       [Alertmanager]     [Grafana]
-           |                  |
-       +---+---+              |
-       |       |              |
-   [Discord] [Telegram]   [Dashboards]
+┌──────────────────────┐
+│     PostgreSQL       │
+│    (com PostGIS)     │
+└─────────┬────────────┘
+          │ expõe métricas
+          ▼
+┌──────────────────────┐
+│   postgres_exporter  │  ←– conexão via usuário/porta do banco
+│ (+ queries customizadas) │
+└─────────┬────────────┘
+          │ scrape HTTP
+          ▼
+┌──────────────────────┐
+│      Prometheus      │
+│  (armazena métricas  │
+│   + regras de alerta)│
+└─────┬──────┬─────────┘
+      │      │
+      │      ▼
+      │   Grafana
+      │ (visualizações)
+      │
+      ▼
+┌──────────────────────┐
+│    Alertmanager      │
+│ (trata alertas do    │
+│   Prometheus)        │
+└─────┬────────────┬───┘
+      │            │
+      ▼            ▼
+ Discord        Telegram
+(webhook)      (bot/api)
+
+
+---
+
+### COMPONENTES OPCIONAIS
+
+┌──────────────────────┐
+│    node_exporter     │
+│ (monitoramento SO:   │
+│   CPU, memória, etc) │
+└─────────┬────────────┘
+          │ scrape
+          ▼
+     Prometheus
+
+---
+
+### Fluxo Lógico da Integração
+
+- PostgreSQL → expõe métricas internas (como conexões, bloqueios, I/O, queries, etc.)
+
+- postgres_exporter → coleta essas métricas via conexão com o banco e as disponibiliza em /metrics.
+
+- Prometheus → consulta (scrape) o postgres_exporter em intervalos definidos.
+
+- Prometheus → armazena as métricas e executa regras de alerta (em PromQL).
+
+- Alertmanager → recebe alertas disparados e os encaminha para os canais configurados (Discord, Telegram, etc.)
+
+- Grafana → acessa o Prometheus como datasource e apresenta dashboards com as métricas em tempo real.
+
+- (Opcional) node_exporter monitora recursos do sistema operacional onde os bancos rodam.
+
+---
+
+### ✅ Requisitos Essenciais
+
+| Componente         | O que precisa estar configurado?                     |
+| ------------------ | ---------------------------------------------------- |
+| PostgreSQL         | Usuário com permissão, `pg_stat_statements`, PostGIS |
+| postgres\_exporter | Variáveis de conexão + queries customizadas          |
+| Prometheus         | `prometheus.yml` com targets e regras                |
+| Alertmanager       | `alertmanager.yml` com rotas, receivers, canais      |
+| Grafana            | Datasource Prometheus + dashboards                   |
+| Discord / Telegram | Webhook (Discord) ou Bot Token + Chat ID (Telegram)  |
+| Docker / Infra     | Docker Compose ou orquestração dos contêineres       |
+
+

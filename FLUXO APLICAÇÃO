@@ -1,0 +1,16 @@
+[Bancos PostgreSQL]
+           |
+           v
+[PostgreSQL Exporter (um por banco)]
+           |
+           v
+       [Prometheus]
+           |
+           +------------------+
+           |                  |
+           v                  v
+       [Alertmanager]     [Grafana]
+           |                  |
+       +---+---+              |
+       |       |              |
+   [Discord] [Telegram]   [Dashboards]

@@ -58,6 +58,9 @@ Todos os serviços serão orquestrados via `docker-compose`, rodando na **mesma 
 [PostgreSQL Exporter (1 por banco)] ---> [Prometheus] ---> [Grafana]
                                           |
                                           +--> [Alertmanager] ---> [Discord / Telegram]
+
+```
+
 ---
 
 ## Estratégia de Exportação

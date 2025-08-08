@@ -1,0 +1,169 @@
+# 1) Versão da lib PostGIS
+- name: postgis_version_info
+  query: |
+    SELECT 1 AS one, postgis_lib_version() AS version;
+  metrics:
+    - version:
+        usage: LABEL
+        description: "PostGIS lib version"
+
+# 2) Tamanho dos índices GiST / SP-GiST (bytes)
+- name: postgis_index_size_bytes
+  query: |
+    SELECT
+      n.nspname   AS schema,
+      rel.relname AS table,
+      idx.relname AS index,
+      pg_total_relation_size(idx.oid) AS size_bytes
+    FROM pg_index i
+    JOIN pg_class idx ON idx.oid = i.indexrelid
+    JOIN pg_class rel ON rel.oid = i.indrelid
+    JOIN pg_namespace n ON n.oid = rel.relnamespace
+    JOIN pg_am am ON am.oid = idx.relam
+    WHERE am.amname IN ('gist','spgist');
+  metrics:
+    - size_bytes:
+        usage: GAUGE
+        description: "Index size"
+        labels: [schema, table, index]
+
+# 3) Bloat dos índices geométricos (%)
+- name: postgis_index_bloat_ratio
+  query: |
+    WITH gist AS (
+      SELECT
+        idx.oid,
+        pg_relation_size(idx.oid)          AS size,
+        pgstat.idx_scan                    AS scans,
+        pgstat.idx_tup_read                AS tuples_read,
+        pg_indexam_has_property(idx.oid,'has_bloat') AS has_bloat
+      FROM pg_class idx
+      JOIN pg_index ind   ON ind.indexrelid = idx.oid
+      JOIN pg_am am       ON am.oid = idx.relam
+      JOIN pg_stat_all_indexes pgstat ON pgstat.indexrelid = idx.oid
+      WHERE am.amname IN ('gist','spgist')
+    )
+    SELECT
+      current_database() AS db,
+      oid::regclass::text AS index,
+      CASE WHEN has_bloat THEN (1 - tuples_read::numeric / NULLIF(scans,0)) * 100 ELSE 0 END AS bloat_pct
+    FROM gist;
+  metrics:
+    - bloat_pct:
+        usage: GAUGE
+        description: "Index bloat (%)"
+        labels: [db, index]
+
+# 4) Inserções em tabelas com geometry (contador)
+- name: postgis_geom_inserts_total
+  query: |
+    SELECT
+      schemaname,
+      relname,
+      n_tup_ins AS inserts
+    FROM pg_stat_user_tables
+    WHERE relid IN (
+      SELECT c.oid
+      FROM pg_class c
+      JOIN pg_attribute a ON a.attrelid = c.oid
+      JOIN pg_type t      ON t.oid = a.atttypid
+      WHERE t.typname = 'geometry');
+  metrics:
+    - inserts:
+        usage: COUNTER
+        description: "Rows inserted"
+        labels: [schemaname, relname]
+
+# 5) Queries espaciais > 30 s em execução
+- name: postgis_long_running_queries
+  query: |
+    SELECT
+      count(*) AS long_running
+    FROM pg_stat_activity
+    WHERE state = 'active'
+      AND now() - query_start > interval '30 seconds'
+      AND query ~* 'ST_';        -- heurística: usa função PostGIS
+  metrics:
+    - long_running:
+        usage: GAUGE
+        description: "Spatial queries >30s"
+
+
+#
+
+- name: postgis.rules
+  rules:
+  # ───────────────────────────────────────────────
+  # 1) Queries espaciais longas
+  # ───────────────────────────────────────────────
+  - alert: PostGIS_LongRunningQueries
+    expr: postgis_long_running_queries > 5
+    for: 3m
+    labels:
+      severity: warning
+    annotations:
+      summary:  "≥ 5 queries espaciais >30 s em {{ $labels.instance }}"
+      description: |
+        Há {{ $value }} consultas usando funções ST_* em
+        execução há mais de 30 s. Verifique índices ou planos.
+
+  # ───────────────────────────────────────────────
+  # 2) Taxa alta de INSERTs geométricos
+  # ───────────────────────────────────────────────
+  - alert: PostGIS_InsertSpike
+    expr: |
+      rate(postgis_geom_inserts_total[1m]) > 5000
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary:  "Fluxo de cadastros >5k rows/s em {{ $labels.schemaname }}.{{ $labels.relname }}"
+      description: |
+        Tabela recebendo mais de 5 000 inserções por segundo.
+        Ajuste autovacuum ou reveja batch-size da aplicação.
+
+  # ───────────────────────────────────────────────
+  # 3) Bloat de índice GiST / SP-GiST
+  # ───────────────────────────────────────────────
+  - alert: PostGIS_IndexBloatHigh
+    expr: postgis_index_bloat_ratio > 20
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary:  "Bloat >20 % no índice {{ $labels.index }}"
+      description: |
+        O índice espacial {{ $labels.index }} apresenta bloat
+        estimado acima de 20 %. Considere REINDEX ou CLUSTER.
+
+  # ───────────────────────────────────────────────
+  # 4) Tamanho total dos índices espaciais por instância
+  #    (ajuste o limiar conforme seu storage)
+  # ───────────────────────────────────────────────
+  - alert: PostGIS_IndexSizeHuge
+    expr: |
+      sum by (instance) (postgis_index_size_bytes) > 1e+11   # >100 GB
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary:  "Índices espaciais >100 GB em {{ $labels.instance }}"
+      description: |
+        A soma dos índices GiST/SP-GiST ultrapassou 100 GB.
+        Revise necessidade de particionamento ou compressão.
+
+  # ───────────────────────────────────────────────
+  # 5) Biblioteca PostGIS desatualizada (exemplo)
+  #    — dispara se versão < 3.4 em 2025-08
+  # ───────────────────────────────────────────────
+  - alert: PostGIS_OldVersion
+    expr: |
+      postgis_version_info{version!~"^3\\.[4-9]"} == 1
+    for: 0m
+    labels:
+      severity: info
+    annotations:
+      summary:  "Instância {{ $labels.instance }} usa PostGIS {{ $labels.version }}"
+      description: |
+        Versão da lib PostGIS abaixo da 3.4. Considere upgrade
+        para benefícios de desempenho e correções.

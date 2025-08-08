@@ -1,0 +1,59 @@
+version: "3.9"
+services:
+  # 1) Exporter único em modo multi-target
+  pg_exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    environment:
+      POSTGRES_EXPORTER_DISABLE_DEFAULT_METRICS: "false"
+    ports: ["9187:9187"]
+
+  # 2) Prometheus
+  prometheus:
+    image: prom/prometheus:v2.52
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./prometheus/postgres_targets.yml:/etc/prometheus/postgres_targets.yml:ro
+      - prom_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports: ["9090:9090"]
+    depends_on: [pg_exporter, alertmanager]
+
+  # 3) Alertmanager
+  alertmanager:
+    image: prom/alertmanager:v0.27
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    ports: ["9093:9093"]
+
+  # 4) Grafana
+  grafana:
+    image: grafana/grafana:10.4
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports: ["3000:3000"]
+    volumes: ["grafana_data:/var/lib/grafana"]
+
+volumes:
+  prom_data:
+  grafana_data:
+
+
+
+# docker-compose.yml no HOST que vai ser monitorarado (não no servidor do Prometheus)
+
+  node_exporter:
+    image: quay.io/prometheus/node-exporter:v1.8.1
+    restart: unless-stopped
+    network_mode: host        # expõe :9100 no host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - --path.rootfs=/host
+      # evita montar FS efêmeros (docker/ramfs/etc) nos métricos
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/(docker|containers)|snap)($|/)
+      - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|cgroup2?|debugfs|devpts|devtmpfs|fusectl|mqueue|proc|pstore|rpc_pipefs|securityfs|sysfs|tracefs|squashfs|overlay|nsfs)$

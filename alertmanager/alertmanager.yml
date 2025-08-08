@@ -1,0 +1,13 @@
+route:
+  receiver: default
+  group_by: ['alertname', 'severity']
+receivers:
+- name: default
+  discord_configs:
+    - webhook_url:  https://discord.com/api/webhooks/ID/TOKEN
+      send_resolved: true
+  telegram_configs:
+    - bot_token:    123456:ABCdefGhIJKlmNoPQRstuVWxyZ
+      chat_id:      -987654321
+      parse_mode:   HTML
+      send_resolved: true

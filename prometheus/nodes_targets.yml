@@ -1,0 +1,7 @@
+
+- labels: { role: db, env: prod }
+  targets:
+    - db01.sua.rede:9100
+    - db02.sua.rede:9100
+    # só copiar e colocar todos os node exporters necessarios
+    - db50.sua.rede:9100

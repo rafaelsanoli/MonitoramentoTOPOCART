@@ -1,0 +1,7 @@
+- labels: {env: prod}
+  targets:
+    - "postgresql://usr1:pwd1@db01:5432/db_a?sslmode=disable"  
+    - "postgresql://usr2:pwd2@db02:5432/db_b?sslmode=disable"   
+    - "postgresql://usr3:pwd3@db03:5432/db_c?sslmode=disable"   
+    # …template de entradas de banco, só copiar o padrão até completar todas entradas de banco necessárias
+    - "postgresql://usr50:pwd50@db50:5432/db_z?sslmode=disable" 

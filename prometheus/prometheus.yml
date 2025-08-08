@@ -1,0 +1,35 @@
+global:
+  scrape_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: 'postgres-multitarget'
+    metrics_path: /probe                # endpoint do exporter
+    params:
+      module: [default]                 # módulo padrão do exporter
+    file_sd_configs:
+      - files: ['/etc/prometheus/postgres_targets.yml']
+
+    relabel_configs:                    # redireciona cada DSN p/ exporter
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: pg_exporter:9187   # endereço real do exporter
+      - source_labels: [__param_target]
+        target_label: instance          # rótulo “bonito” nos gráficos
+
+
+  - job_name: 'node'
+    file_sd_configs:
+      - files: ['/etc/prometheus/nodes_targets.yml']
+    # rotula 'instance' bonitinho, se quiser deixar bonito
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance 

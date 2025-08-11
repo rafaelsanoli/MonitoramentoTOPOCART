@@ -1,0 +1,285 @@
+groups:
+- name: postgres_base.rules
+  rules:
+  # ───────────────────────────────────────────────
+  # DISPONIBILIDADE
+  # ───────────────────────────────────────────────
+  - alert: PostgresDown
+    expr: pg_up == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "PostgreSQL offline em {{ $labels.instance }}"
+      description: |
+        A instância {{ $labels.instance }} não responde ao exporter
+        há pelo menos 1 minuto.
+
+  # ───────────────────────────────────────────────
+  # CONEXÕES
+  # ───────────────────────────────────────────────
+  - alert: ConnectionsHigh
+    expr: |
+      100 *
+      (sum by (instance)(pg_stat_database_numbackends))
+        /
+      (sum by (instance)(pg_settings_max_connections))
+      > 80
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Uso de conexões > 80 % em {{ $labels.instance }}"
+      description: |
+        O total de conexões ativas passou de 80 % da
+        configuração max_connections.
+
+  # ───────────────────────────────────────────────
+  # TAXA DE TRANSAÇÕES
+  # ───────────────────────────────────────────────
+  - alert: NoTransactions
+    expr: |
+      rate(pg_stat_database_xact_commit[5m]) +
+      rate(pg_stat_database_xact_rollback[5m]) < 1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Sem transações nos últimos 5 min em {{ $labels.instance }}"
+      description: |
+        Nenhuma transação foi registrada na instância,
+        o que pode indicar indisponibilidade de aplicação.
+
+  # ───────────────────────────────────────────────
+  # LATÊNCIA MÉDIA (pg_stat_statements)
+  # ───────────────────────────────────────────────
+  - alert: QueryLatencyHigh
+    expr: |
+      increase(pg_stat_statements_total_time[5m])
+        /
+      increase(pg_stat_statements_calls[5m])
+      > 0.5
+    for: 3m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Latência média > 500 ms em {{ $labels.instance }}"
+      description: |
+        A média de duração das queries excedeu 500 ms
+        na janela de 5 minutos.
+
+  # ───────────────────────────────────────────────
+  # CACHE HIT RATIO
+  # ───────────────────────────────────────────────
+  - alert: CacheHitRatioLow
+    expr: |
+      (rate(pg_stat_database_blks_hit[5m]))
+        /
+      (rate(pg_stat_database_blks_hit[5m]) + rate(pg_stat_database_blks_read[5m]))
+      < 0.99
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Cache hit ratio < 99 % em {{ $labels.instance }}"
+      description: |
+        Baixa taxa de acerto no cache indica pressão de I/O.
+
+  # ───────────────────────────────────────────────
+  # I/O DE DISCO (leituras de bloco)
+  # ───────────────────────────────────────────────
+  - alert: DiskReadsHigh
+    expr: |
+      rate(pg_stat_database_blks_read[1m]) * 8 * 1024 > 10485760   # > 10 MB/s
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Leitura de disco > 10 MB/s em {{ $labels.instance }}"
+      description: |
+        A taxa de leitura superou 10 MB por segundo
+        na última janela de 1 minuto.
+
+  # ───────────────────────────────────────────────
+  # CHECKPOINTS EXCESSIVOS
+  # ───────────────────────────────────────────────
+  - alert: FrequentCheckpoints
+    expr: |
+      rate(pg_stat_bgwriter_checkpoints_timed[5m]) > 0.1   # > 1 a cada 10 min
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Checkpoints frequentes em {{ $labels.instance }}"
+      description: |
+        Mais de 6 checkpoints por hora — pode indicar
+        configuração subótima de checkpoint_timeout/WAL.
+
+  # ───────────────────────────────────────────────
+  # AUTOVACUUM NÃO RODA HÁ MUITO TEMPO
+  # ───────────────────────────────────────────────
+  - alert: AutovacuumStale
+    expr: |
+      time() - pg_stat_user_tables_last_autovacuum > 86400  # > 24 h
+    for: 1h
+    labels:
+      severity: warning
+    annotations:
+      summary: "Autovacuum atrasado em {{ $labels.relname }}"
+      description: |
+        A tabela {{ $labels.relname }} não recebe autovacuum
+        há mais de 24 horas.
+
+  # ───────────────────────────────────────────────
+  # DEADLOCKS
+  # ───────────────────────────────────────────────
+  - alert: DeadlocksDetected
+    expr: increase(pg_stat_database_deadlocks[5m]) > 0
+    for: 0m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Deadlock detectado em {{ $labels.instance }}"
+      description: |
+        Um ou mais deadlocks ocorreram nos últimos 5 minutos.
+
+  # ───────────────────────────────────────────────
+  # BLOAT > 20 %  (métrica via query custom pg_table_bloat_ratio)
+  # ───────────────────────────────────────────────
+  - alert: TableBloatHigh
+    expr: pg_table_bloat_ratio > 20
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Bloat > 20 % na tabela {{ $labels.relname }}"
+      description: |
+        A tabela {{ $labels.relname }} apresenta bloat estimado
+        acima de 20 %. Considere re-indexar ou CLUSTER.
+
+  # ───────────────────────────────────────────────
+  # LAG DE REPLICAÇÃO (hot standby)
+  # ───────────────────────────────────────────────
+  - alert: ReplicationLagHigh
+    expr: pg_replication_lag_bytes > 104857600   # > 100 MB
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Lag de replicação > 100 MB em {{ $labels.instance }}"
+      description: |
+        O atraso de replicação ultrapassou 100 MB por 5 minutos.
+
+- name: node.rules
+  rules:
+  # ──────────────── Disponibilidade ────────────────
+  - alert: NodeDown
+    expr: up{job="node"} == 0
+    for: 1m
+    labels: { severity: critical }
+    annotations:
+      summary: "Node down: {{ $labels.instance }}"
+      description: "Prometheus não consegue raspar o node_exporter em {{ $labels.instance }}."
+
+  # ──────────────── Carga / CPU ────────────────
+  - alert: NodeHighLoad
+    expr: node_load15
+          / on(instance) count without (cpu,mode) (node_cpu_seconds_total{mode="idle"})
+          > 1.5
+    for: 5m
+    labels: { severity: warning }
+    annotations:
+      summary: "Load15 > 1.5 por core em {{ $labels.instance }}"
+      description: "Carga média de 15 min acima de 1.5 por CPU."
+
+  - alert: NodeCPUHigh
+    expr: sum without (cpu,mode) (rate(node_cpu_seconds_total{mode!="idle"}[5m])) > 0.9
+    for: 5m
+    labels: { severity: warning }
+    annotations:
+      summary: "CPU > 90% em {{ $labels.instance }}"
+      description: "Uso médio de CPU acima de 90% por 5 minutos."
+
+  # ──────────────── Memória / Swap ────────────────
+  - alert: NodeMemoryPressure
+    expr: 1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.90
+    for: 10m
+    labels: { severity: warning }
+    annotations:
+      summary: "Memória > 90% em {{ $labels.instance }}"
+      description: "Memória disponível abaixo de 10%."
+
+  - alert: NodeSwapUsage
+    expr: (node_memory_SwapTotal_bytes > 0)
+          and (node_memory_SwapUsed_bytes / node_memory_SwapTotal_bytes > 0.20)
+    for: 10m
+    labels: { severity: warning }
+    annotations:
+      summary: "Swap > 20% em {{ $labels.instance }}"
+      description: "Uso de swap acima de 20%."
+
+  # ──────────────── Disco: espaço / inodes ────────────────
+  - alert: NodeDiskSpaceLow
+    expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs|overlay|squashfs|aufs|devtmpfs"}
+           / node_filesystem_size_bytes{fstype!~"tmpfs|ramfs|overlay|squashfs|aufs|devtmpfs"})
+          < 0.10
+    for: 10m
+    labels: { severity: warning }
+    annotations:
+      summary: "Disco < 10% livre em {{ $labels.instance }} ({{ $labels.mountpoint }})"
+      description: "Pouco espaço livre no filesystem {{ $labels.mountpoint }}."
+
+  - alert: NodeDiskInodesLow
+    expr: (node_filesystem_files_free{fstype!~"tmpfs|ramfs|overlay|squashfs|aufs|devtmpfs"}
+           / node_filesystem_files{fstype!~"tmpfs|ramfs|overlay|squashfs|aufs|devtmpfs"})
+          < 0.10
+    for: 10m
+    labels: { severity: warning }
+    annotations:
+      summary: "Inodes < 10% livres em {{ $labels.instance }} ({{ $labels.mountpoint }})"
+      description: "Poucos inodes disponíveis; pode travar escrita mesmo com espaço."
+
+  # ──────────────── Disco: utilização e latência ────────────────
+  - alert: NodeDiskBusy
+    expr: avg by (instance, device) (rate(node_disk_io_time_seconds_total[5m])) > 0.70
+    for: 10m
+    labels: { severity: warning }
+    annotations:
+      summary: "Disco ocupado >70% em {{ $labels.instance }} ({{ $labels.device }})"
+      description: "Alta ocupação de I/O, pode impactar WAL e checkpoints."
+
+  - alert: NodeDiskReadLatencyHigh
+    expr: (rate(node_disk_read_time_seconds_total[5m])
+          / rate(node_disk_reads_completed_total[5m])) > 0.050
+    for: 10m
+    labels: { severity: warning }
+    annotations:
+      summary: "Latência de leitura > 50 ms em {{ $labels.instance }} ({{ $labels.device }})"
+      description: "Tempo médio de leitura elevado."
+
+  - alert: NodeDiskWriteLatencyHigh
+    expr: (rate(node_disk_write_time_seconds_total[5m])
+          / rate(node_disk_writes_completed_total[5m])) > 0.050
+    for: 10m
+    labels: { severity: warning }
+    annotations:
+      summary: "Latência de escrita > 50 ms em {{ $labels.instance }} ({{ $labels.device }})"
+    description: "Tempo médio de escrita elevado."
+
+  # ──────────────── Rede ────────────────
+  - alert: NodeNetworkErrors
+    expr: (rate(node_network_receive_errs_total[5m]) + rate(node_network_transmit_errs_total[5m])) > 0
+    for: 5m
+    labels: { severity: warning }
+    annotations:
+      summary: "Erros de rede em {{ $labels.instance }} ({{ $labels.device }})"
+      description: "Pacotes com erro detectados na interface."
+
+  # ──────────────── Filesystem read-only ────────────────
+  - alert: NodeFilesystemReadOnly
+    expr: node_filesystem_readonly == 1
+    for: 1m
+    labels: { severity: critical }
+    annotations:
+      summary: "Filesystem montado como read-only em {{ $labels.instance }} ({{ $labels.mountpoint }})"
+      description: "Volume está somente leitura; pode parar gravações do Postgres."
